@@ -1,7 +1,8 @@
 services:
   bridge:
-    build: .
-    image: ghes-jira-devinfo-bridge:local
+    image: ghcr.io/tomaskovacik/ghes-jira-devinfo-bridge:0.0.1
+    # To build locally instead, comment the image line above and uncomment:
+    # build: .
     env_file: .env
     volumes:
       # Named volume: inherits the image's /data ownership (uid 10001), works out of the box.
