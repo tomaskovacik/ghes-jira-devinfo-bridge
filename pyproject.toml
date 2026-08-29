@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ghes-jira-devinfo-bridge"
-version = "0.1.0"
+version = "0.0.1"
 description = "One-way sync of GitHub Enterprise Server commits, branches and pull requests into the Jira Cloud development panel."
 readme = "README.md"
 requires-python = ">=3.11"
