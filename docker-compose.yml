@@ -1,3 +1,6 @@
+# "version" is ignored by Compose v2 but required by the older Python docker-compose v1.
+version: "3.8"
+
 services:
   bridge:
     image: ghcr.io/tomaskovacik/ghes-jira-devinfo-bridge:0.0.1
