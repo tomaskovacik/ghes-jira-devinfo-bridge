@@ -1,0 +1,30 @@
+[
+  {
+    "sha": "2222222222222222222222222222222222222222",
+    "html_url": "https://ghe.example.com/octo/repo/commit/2222222222222222222222222222222222222222",
+    "commit": {
+      "message": "PROJ-3 newer commit",
+      "author": {
+        "name": "Octo Cat",
+        "email": "octocat@example.com",
+        "date": "2026-08-21T12:00:00Z"
+      }
+    },
+    "files": [
+      {"filename": "x.py"},
+      {"filename": "y.py"}
+    ]
+  },
+  {
+    "sha": "1111111111111111111111111111111111111111",
+    "html_url": "https://ghe.example.com/octo/repo/commit/1111111111111111111111111111111111111111",
+    "commit": {
+      "message": "PROJ-3 older commit",
+      "author": {
+        "name": "Octo Cat",
+        "email": "octocat@example.com",
+        "date": "2026-08-20T12:00:00Z"
+      }
+    }
+  }
+]

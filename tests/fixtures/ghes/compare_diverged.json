@@ -1,0 +1,23 @@
+{
+  "status": "diverged",
+  "ahead_by": 1,
+  "behind_by": 3,
+  "total_commits": 1,
+  "merge_base_commit": {
+    "sha": "9999999999999999999999999999999999999999"
+  },
+  "commits": [
+    {
+      "sha": "3333333333333333333333333333333333333333",
+      "html_url": "https://ghe.example.com/octo/repo/commit/3333333333333333333333333333333333333333",
+      "commit": {
+        "message": "PROJ-2 diverging work",
+        "author": {
+          "name": "Octo Cat",
+          "email": "octocat@example.com",
+          "date": "2026-08-22T09:00:00Z"
+        }
+      }
+    }
+  ]
+}

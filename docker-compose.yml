@@ -1,0 +1,15 @@
+services:
+  bridge:
+    build: .
+    image: ghes-jira-devinfo-bridge:local
+    env_file: .env
+    volumes:
+      # Named volume: inherits the image's /data ownership (uid 10001), works out of the box.
+      - bridge-data:/data
+      # To use a host directory instead, replace the line above with:
+      #   - ./data:/data
+      # and make it writable by the container user: `chown 10001 ./data`
+    restart: unless-stopped
+
+volumes:
+  bridge-data:

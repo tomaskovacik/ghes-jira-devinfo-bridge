@@ -1,0 +1,16 @@
+[
+  {
+    "id": 3,
+    "name": "legacy",
+    "full_name": "octo/legacy",
+    "html_url": "https://ghe.example.com/octo/legacy",
+    "archived": true
+  },
+  {
+    "id": 4,
+    "name": "widgets",
+    "full_name": "octo/widgets",
+    "html_url": "https://ghe.example.com/octo/widgets",
+    "archived": false
+  }
+]

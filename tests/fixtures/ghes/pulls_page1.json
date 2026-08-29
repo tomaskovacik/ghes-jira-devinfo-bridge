@@ -1,0 +1,54 @@
+[
+  {
+    "number": 4,
+    "title": "PROJ-9 open work",
+    "state": "open",
+    "merged_at": null,
+    "html_url": "https://ghe.example.com/octo/repo/pull/4",
+    "user": {"login": "octocat"},
+    "head": {"ref": "feature/open"},
+    "base": {"ref": "main"},
+    "updated_at": "2026-08-25T08:00:00Z",
+    "body": "still working",
+    "comments": 2
+  },
+  {
+    "number": 3,
+    "title": "PROJ-8 merged work",
+    "state": "closed",
+    "merged_at": "2026-08-22T10:00:00Z",
+    "html_url": "https://ghe.example.com/octo/repo/pull/3",
+    "user": {"login": "octocat"},
+    "head": {"ref": "feature/merged"},
+    "base": {"ref": "main"},
+    "updated_at": "2026-08-22T10:00:00Z",
+    "body": null,
+    "comments": 0
+  },
+  {
+    "number": 2,
+    "title": "PROJ-7 declined work",
+    "state": "closed",
+    "merged_at": null,
+    "html_url": "https://ghe.example.com/octo/repo/pull/2",
+    "user": {"login": "octocat"},
+    "head": {"ref": "feature/declined"},
+    "base": {"ref": "main"},
+    "updated_at": "2026-08-20T10:00:00Z",
+    "body": "abandoned",
+    "comments": 5
+  },
+  {
+    "number": 1,
+    "title": "PROJ-6 ancient work",
+    "state": "closed",
+    "merged_at": "2026-07-01T10:00:00Z",
+    "html_url": "https://ghe.example.com/octo/repo/pull/1",
+    "user": {"login": "octocat"},
+    "head": {"ref": "feature/ancient"},
+    "base": {"ref": "main"},
+    "updated_at": "2026-07-01T10:00:00Z",
+    "body": "old",
+    "comments": 0
+  }
+]

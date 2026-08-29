@@ -1,0 +1,10 @@
+[
+  {
+    "name": "main",
+    "commit": {
+      "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "html_url": "https://ghe.example.com/octo/repo/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "protected": true
+  }
+]

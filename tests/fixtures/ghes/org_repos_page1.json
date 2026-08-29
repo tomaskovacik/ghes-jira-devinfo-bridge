@@ -1,0 +1,16 @@
+[
+  {
+    "id": 1,
+    "name": "repo",
+    "full_name": "octo/repo",
+    "html_url": "https://ghe.example.com/octo/repo",
+    "archived": false
+  },
+  {
+    "id": 2,
+    "name": "hello-world",
+    "full_name": "octo/hello-world",
+    "html_url": "https://ghe.example.com/octo/hello-world",
+    "archived": false
+  }
+]
