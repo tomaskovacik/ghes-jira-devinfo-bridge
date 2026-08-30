@@ -178,10 +178,12 @@ surface and the per-issue panel is built lazily on view.
 ## Development
 
 ```
-pip install -e ".[dev]"
-ruff check . && ruff format --check .
-pytest
+uv sync --extra dev
+uv run ruff check . && uv run ruff format --check .
+uv run pytest
 ```
+
+Dependencies are pinned in `uv.lock`; run `uv lock` after changing `pyproject.toml`.
 
 ## License
 
