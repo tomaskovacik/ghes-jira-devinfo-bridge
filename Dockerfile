@@ -10,9 +10,12 @@ ENV UV_LINK_MODE=copy \
 WORKDIR /app
 COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
-# Reproducible install: resolved versions come only from uv.lock, no source builds
-# of third-party deps (wheels only), project installed non-editable into /app/.venv.
-RUN uv sync --frozen --no-dev --no-editable
+# 1. Third-party deps: exactly what uv.lock pins, wheels only (--no-build =>
+#    no dependency setup script ever runs). 2. Build and install this repo's
+#    own package from its just-copied source (first-party, no external code).
+RUN uv sync --frozen --no-dev --no-install-project --no-build \
+    && uv build --wheel --no-sources --out-dir /tmp/dist \
+    && uv pip install --no-deps --no-build /tmp/dist/*.whl
 
 FROM python:3.12-slim AS runtime
 ENV PYTHONUNBUFFERED=1 \

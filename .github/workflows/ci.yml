@@ -16,10 +16,14 @@ jobs:
         with:
           version: "0.5.9"
           python-version: "3.12"
-      - run: uv sync --frozen --extra dev
-      - run: uv run ruff check .
-      - run: uv run ruff format --check .
-      - run: uv run pytest
+      # --frozen: install exactly what uv.lock pins. --no-build: wheels only,
+      # never execute a package's setup script. --no-install-project: only
+      # third-party deps go in the venv; the local package is picked up from
+      # src/ via pytest's pythonpath, so --no-build never has to build it.
+      - run: uv sync --frozen --no-install-project --no-build --extra dev
+      - run: .venv/bin/ruff check .
+      - run: .venv/bin/ruff format --check .
+      - run: .venv/bin/pytest
 
   docker:
     permissions:
