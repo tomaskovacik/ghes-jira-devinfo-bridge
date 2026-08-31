@@ -187,4 +187,4 @@ Dependencies are pinned in `uv.lock`; run `uv lock` after changing `pyproject.to
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+see [LICENSE](LICENSE).
