@@ -2,7 +2,7 @@
 
 FROM ghcr.io/astral-sh/uv:0.5.9 AS uv
 
-FROM python:3.12-slim AS build
+FROM python:3.14-slim AS build
 COPY --from=uv /uv /bin/uv
 ENV UV_LINK_MODE=copy \
     UV_PYTHON_DOWNLOADS=0 \
@@ -17,7 +17,7 @@ RUN uv sync --frozen --no-dev --no-install-project --no-build \
     && uv build --wheel --no-sources --out-dir /tmp/dist \
     && uv pip install --no-deps --no-build /tmp/dist/*.whl
 
-FROM python:3.12-slim AS runtime
+FROM python:3.14-slim AS runtime
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     TZ=UTC \
