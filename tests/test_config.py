@@ -15,7 +15,7 @@ def test_from_env_minimal(base_env: dict[str, str]) -> None:
     # devinfo push defaults
     assert s.push_chunk_size == 400
     assert s.backfill_on_first_sight is True
-    assert s.send_issue_keys is True
+    assert s.send_issue_keys is False  # issueKeys is deprecated -> default to associations
     assert s.send_associations is True
     assert s.issue_key_cap == 500
 
@@ -33,14 +33,14 @@ def test_devinfo_toggles(base_env: dict[str, str]) -> None:
     base_env.update(
         {
             "SYNC_BACKFILL_FIRST_SIGHT": "false",
-            "JIRA_SEND_ISSUE_KEYS": "false",
+            "JIRA_SEND_ISSUE_KEYS": "true",
             "JIRA_SEND_ASSOCIATIONS": "false",
             "JIRA_ISSUE_KEY_CAP": "100",
         }
     )
     s = Settings.from_env(base_env)
     assert s.backfill_on_first_sight is False
-    assert s.send_issue_keys is False
+    assert s.send_issue_keys is True
     assert s.send_associations is False
     assert s.issue_key_cap == 100
 

@@ -40,6 +40,9 @@ def _changes(**kw) -> RepoChanges:
 
 
 def _build(changes: RepoChanges, *, prevent_transitions: bool = True, **kw) -> dict | None:
+    # Most tests here assert on issueKeys because it's the simplest linkage form
+    # to check; the production default is associations (see the linkage tests).
+    kw.setdefault("send_issue_keys", True)
     return build_devinfo_payload(
         changes,
         prevent_transitions=prevent_transitions,
@@ -79,40 +82,41 @@ def test_merge_commit_gets_flag() -> None:
     assert payload["repositories"][0]["commits"][0]["flags"] == ["MERGE_COMMIT"]
 
 
-def test_linkage_defaults_to_issue_keys_only() -> None:
-    # Jira rejects issueKeys + associations on the same entity ("mutually
-    # exclusive"), and issueKeys is what every shipping client sends.
-    payload = _build(_changes(commits=[_commit("abcdef1234", "ABC-1 x")]))
-    commit = payload["repositories"][0]["commits"][0]
-    assert commit["issueKeys"] == ["ABC-1"]
-    assert "associations" not in commit
+def _commit0(payload: dict) -> dict:
+    return payload["repositories"][0]["commits"][0]
 
 
-def test_linkage_switches_to_associations_never_both() -> None:
+def test_linkage_defaults_to_associations_only() -> None:
+    # issueKeys is DEPRECATED in the Cloud API; issueKeys and associations are
+    # mutually exclusive on one entity (Jira 400s a payload with both).
+    payload = build_devinfo_payload(
+        _changes(commits=[_commit("abcdef1234", "ABC-1 x")]),
+        prevent_transitions=True,
+        pattern=PATTERN,
+    )
+    commit = _commit0(payload)
+    assert commit["associations"] == [{"associationType": "issueIdOrKeys", "values": ["ABC-1"]}]
+    assert "issueKeys" not in commit
+
+
+def test_linkage_can_use_deprecated_issue_keys_never_both() -> None:
     c = _changes(commits=[_commit("abcdef1234", "ABC-1 x")])
 
-    only_keys = _build(c, send_associations=False)["repositories"][0]["commits"][0]
-    assert only_keys["issueKeys"] == ["ABC-1"] and "associations" not in only_keys
-
-    only_assoc = _build(c, send_issue_keys=False)["repositories"][0]["commits"][0]
-    assert "issueKeys" not in only_assoc
-    assert only_assoc["associations"] == [{"associationType": "issueIdOrKeys", "values": ["ABC-1"]}]
+    keys = _commit0(_build(c, send_issue_keys=True))
+    assert keys["issueKeys"] == ["ABC-1"] and "associations" not in keys
 
     # both off -> issueKeys fallback, never nothing
-    neither = _build(c, send_issue_keys=False, send_associations=False)
-    entity = neither["repositories"][0]["commits"][0]
-    assert entity["issueKeys"] == ["ABC-1"] and "associations" not in entity
+    both_off = _commit0(_build(c, send_issue_keys=False, send_associations=False))
+    assert both_off["issueKeys"] == ["ABC-1"] and "associations" not in both_off
 
 
 def test_issue_key_cap_truncates_both_forms() -> None:
     msg = "start " + " ".join(f"ABC-{i}" for i in range(600))
     changes = _changes(commits=[_commit("abcdef1234", msg)])
-    keys_commit = _build(changes, key_cap=500)["repositories"][0]["commits"][0]
-    assert len(keys_commit["issueKeys"]) == 500
-    assoc_commit = _build(changes, send_issue_keys=False, key_cap=500)["repositories"][0][
-        "commits"
-    ][0]
+    assoc_commit = _commit0(_build(changes, send_issue_keys=False, key_cap=500))
     assert len(assoc_commit["associations"][0]["values"]) == 500
+    keys_commit = _commit0(_build(changes, send_issue_keys=True, key_cap=500))
+    assert len(keys_commit["issueKeys"]) == 500
 
 
 def test_field_length_caps_applied() -> None:
