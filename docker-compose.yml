@@ -3,7 +3,7 @@ version: "3.8"
 
 services:
   bridge:
-    image: ghcr.io/tomaskovacik/ghes-jira-devinfo-bridge:0.1.0
+    image: ghcr.io/tomaskovacik/ghes-jira-devinfo-bridge:0.0.3
     # To build locally instead, comment the image line above and uncomment:
     # build: .
     env_file: .env

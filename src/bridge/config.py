@@ -87,9 +87,13 @@ class Settings:
     push_chunk_size: int = 400
     # send operationType=BACKFILL the first time a repo is synced
     backfill_on_first_sight: bool = True
-    send_issue_keys: bool = True  # emit the issueKeys array on entities
-    send_associations: bool = True  # also emit associations[{issueIdOrKeys}]
-    issue_key_cap: int = 500  # per-entity cap on issueKeys + association values
+    # Issue linkage form. Jira rejects issueKeys + associations on one entity
+    # ("mutually exclusive"). issueKeys (default) is what every shipping devinfo
+    # client sends; set send_issue_keys=False to use associations[issueIdOrKeys]
+    # instead. send_associations only takes effect when send_issue_keys is False.
+    send_issue_keys: bool = True
+    send_associations: bool = True
+    issue_key_cap: int = 500  # per-entity cap on issueKeys / association values
     log_entities: bool = False
 
     state_path: str = "/data/state.json"

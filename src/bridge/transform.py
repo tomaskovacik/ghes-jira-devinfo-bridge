@@ -101,15 +101,17 @@ class _Usid:
 
 
 def _linkage(keys: list[str], *, send_issue_keys: bool, send_associations: bool) -> dict:
-    """The issue-linkage fragment for an entity. Always emits at least one of the
-    two forms so the entity is never left unlinked by a misconfiguration."""
-    frag: dict = {}
-    want_keys = send_issue_keys or not send_associations
-    if want_keys:
-        frag["issueKeys"] = keys
-    if send_associations:
-        frag["associations"] = [{"associationType": _ASSOC_TYPE, "values": keys}]
-    return frag
+    """The issue-linkage fragment for an entity.
+
+    Jira rejects a payload that carries BOTH ``issueKeys`` and ``associations`` on
+    one entity ("issueKeys and associations are mutually exclusive"), so exactly
+    one form is emitted. ``issueKeys`` is the default and what every shipping
+    client uses; ``send_issue_keys=False`` switches to ``associations``
+    (``issueIdOrKeys``). Never emits neither.
+    """
+    if send_issue_keys or not send_associations:
+        return {"issueKeys": keys}
+    return {"associations": [{"associationType": _ASSOC_TYPE, "values": keys}]}
 
 
 def _author_obj(author) -> dict:
