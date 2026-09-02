@@ -12,6 +12,37 @@ def test_from_env_minimal(base_env: dict[str, str]) -> None:
     assert s.interval_seconds == 0
     assert s.include_prs is True
     assert s.issue_key_regex == DEFAULT_ISSUE_KEY_REGEX
+    # devinfo push defaults
+    assert s.push_chunk_size == 400
+    assert s.backfill_on_first_sight is True
+    assert s.send_issue_keys is True
+    assert s.send_associations is True
+    assert s.issue_key_cap == 500
+
+
+def test_push_chunk_clamped_to_spec_ceiling(base_env: dict[str, str]) -> None:
+    base_env["SYNC_PUSH_CHUNK"] = "5000"
+    assert Settings.from_env(base_env).push_chunk_size == 400
+    base_env["SYNC_PUSH_CHUNK"] = "0"  # 0 = never split
+    assert Settings.from_env(base_env).push_chunk_size == 0
+    base_env["SYNC_PUSH_CHUNK"] = "50"
+    assert Settings.from_env(base_env).push_chunk_size == 50
+
+
+def test_devinfo_toggles(base_env: dict[str, str]) -> None:
+    base_env.update(
+        {
+            "SYNC_BACKFILL_FIRST_SIGHT": "false",
+            "JIRA_SEND_ISSUE_KEYS": "false",
+            "JIRA_SEND_ASSOCIATIONS": "false",
+            "JIRA_ISSUE_KEY_CAP": "100",
+        }
+    )
+    s = Settings.from_env(base_env)
+    assert s.backfill_on_first_sight is False
+    assert s.send_issue_keys is False
+    assert s.send_associations is False
+    assert s.issue_key_cap == 100
 
 
 def test_explicit_api_url_wins(base_env: dict[str, str]) -> None:

@@ -13,3 +13,5 @@ dist/
 /data/
 state.json
 state.json.healthy
+*.log
+before.json

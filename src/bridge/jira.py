@@ -56,6 +56,32 @@ def _ids_from(node) -> list[str]:
     return [str(node)]
 
 
+def _chunk_payload(payload: dict, chunk_size: int) -> list[dict]:
+    """Split a one-repository payload into several whose commit lists are at
+    most ``chunk_size`` long. Branches and pull requests stay on the first
+    chunk. Any other shape (no chunking asked, multiple repositories, few
+    commits) is returned unchanged as a single-element list."""
+    repos = payload.get("repositories") or []
+    if chunk_size <= 0 or len(repos) != 1:
+        return [payload]
+    repo = repos[0]
+    commits = repo.get("commits") or []
+    if len(commits) <= chunk_size:
+        return [payload]
+
+    envelope = {k: v for k, v in payload.items() if k != "repositories"}
+    repo_meta = {k: v for k, v in repo.items() if k not in ("commits", "branches", "pullRequests")}
+    out: list[dict] = []
+    for start in range(0, len(commits), chunk_size):
+        chunk_repo = {**repo_meta, "commits": commits[start : start + chunk_size]}
+        if start == 0:
+            for key in ("branches", "pullRequests"):
+                if repo.get(key):
+                    chunk_repo[key] = repo[key]
+        out.append({**envelope, "repositories": [chunk_repo]})
+    return out
+
+
 class JiraClient:
     def __init__(self, settings: Settings, http=None) -> None:
         """``http`` is an optional ``httpx.Client`` for tests."""
@@ -153,14 +179,30 @@ class JiraClient:
             raise JiraError(f"tenant_info response missing cloudId: {exc}") from exc
         return self._cloud_id
 
-    def push(self, payload: dict) -> DevinfoResult:
+    def push(self, payload: dict, *, chunk_size: int = 0) -> DevinfoResult:
         """``POST {jira_api_base}/jira/devinfo/0.1/cloud/{cloud_id}/bulk``.
 
         ``payload`` is a full devinfo bulk body (see :mod:`bridge.transform`).
         Parse ``acceptedDevinfoEntities`` / ``unknownIssueKeys`` /
         ``unknownAssociations`` / ``failedDevinfoEntities`` into
         :class:`bridge.models.DevinfoResult`. Raise :class:`JiraError` on non-2xx.
+
+        ``chunk_size`` > 0 splits a single-repository payload whose commit list
+        exceeds it into several sequential POSTs (branches / pull requests ride
+        the first chunk). Jira's async association pass silently drops the tail
+        of a large commit batch; keeping each POST small avoids that.
         """
+        results = [self._push_once(chunk) for chunk in _chunk_payload(payload, chunk_size)]
+        merged = DevinfoResult()
+        for res in results:
+            merged.accepted_devinfo_keys += res.accepted_devinfo_keys
+            merged.unknown_issue_keys += res.unknown_issue_keys
+            merged.unknown_associations += res.unknown_associations
+            merged.failed_devinfo_keys += res.failed_devinfo_keys
+        merged.unknown_issue_keys = list(dict.fromkeys(merged.unknown_issue_keys))
+        return merged
+
+    def _push_once(self, payload: dict) -> DevinfoResult:
         url = f"{self._settings.jira_api_base}/jira/devinfo/0.1/cloud/{self.cloud_id()}/bulk"
         resp = self._request("POST", url, headers=self._auth_headers(), json=payload)
         if resp.status_code not in (200, 202):
@@ -193,6 +235,17 @@ class JiraClient:
         body = resp.json()
         return body if isinstance(body, dict) else {}
 
+    @staticmethod
+    def _now_usid() -> int:
+        """A ``_updateSequenceId`` for a delete: the endpoint removes only stored
+        data whose ``updateSequenceId`` is <= this, so "now in ms" beats every
+        earlier push and forces the delete through."""
+        return int(time.time() * 1000)
+
+    def _devinfo_url(self, *parts: str) -> str:
+        tail = "/".join(str(p) for p in parts)
+        return f"{self._settings.jira_api_base}/jira/devinfo/0.1/cloud/{self.cloud_id()}/{tail}"
+
     def delete_repository(self, repo_id: str) -> None:
         """``DELETE .../repository/{repo_id}`` -> purge all devinfo for a repo.
 
@@ -201,32 +254,48 @@ class JiraClient:
         if self._settings.dry_run:
             logger.info("dry-run: skipping repository delete %s", repo_id)
             return
-        url = (
-            f"{self._settings.jira_api_base}/jira/devinfo/0.1/cloud/"
-            f"{self.cloud_id()}/repository/{repo_id}"
+        resp = self._request(
+            "DELETE",
+            self._devinfo_url("repository", repo_id),
+            headers=self._auth_headers(),
+            params={"_updateSequenceId": self._now_usid()},
         )
-        resp = self._request("DELETE", url, headers=self._auth_headers())
         if resp.status_code not in (202, 204):
             raise JiraError(f"repository delete failed: {resp.status_code} {resp.text}")
 
-    def delete_branch(self, repo_id: str, branch_name: str) -> None:
-        """Remove one branch entity.
-
-        ``DELETE {jira_api_base}/jira/devinfo/0.1/cloud/{cloud_id}/bulkByProperties``
-        with query params selecting this repo + branch ref. No-op in dry-run.
-        """
+    def delete_commit(self, repo_id: str, commit_id: str) -> None:
+        """``DELETE .../repository/{repo_id}/commit/{commit_id}`` -> drop one
+        commit entity. Re-pushing an existing commit only updates it; Jira does
+        not rebuild a dropped issue association on update. Deleting then
+        recreating is the only reliable way to force the association. No-op in
+        dry-run."""
         if self._settings.dry_run:
-            logger.info("dry-run: skipping branch delete %s@%s", branch_name, repo_id)
+            logger.info("dry-run: skipping commit delete %s@%s", commit_id, repo_id)
             return
-        url = (
-            f"{self._settings.jira_api_base}/jira/devinfo/0.1/cloud/"
-            f"{self.cloud_id()}/bulkByProperties"
-        )
         resp = self._request(
             "DELETE",
-            url,
+            self._devinfo_url("repository", repo_id, "commit", commit_id),
             headers=self._auth_headers(),
-            params={"repositoryId": repo_id, "branchId": branch_name},
+            params={"_updateSequenceId": self._now_usid()},
+        )
+        if resp.status_code not in (202, 204):
+            raise JiraError(f"commit delete failed: {resp.status_code} {resp.text}")
+
+    def delete_branch(self, repo_id: str, branch_id: str) -> None:
+        """``DELETE .../repository/{repo_id}/branch/{branch_id}`` -> remove one
+        branch entity. ``branch_id`` is the escaped id from
+        :func:`bridge.transform.branch_id` (what the push used). ``bulkByProperties``
+        is NOT a per-branch delete -- it matches whole repositories by their
+        submission ``properties`` -- so this uses the per-entity endpoint, like
+        :meth:`delete_commit`. No-op in dry-run."""
+        if self._settings.dry_run:
+            logger.info("dry-run: skipping branch delete %s@%s", branch_id, repo_id)
+            return
+        resp = self._request(
+            "DELETE",
+            self._devinfo_url("repository", repo_id, "branch", branch_id),
+            headers=self._auth_headers(),
+            params={"_updateSequenceId": self._now_usid()},
         )
         if resp.status_code not in (202, 204):
             raise JiraError(f"branch delete failed: {resp.status_code} {resp.text}")

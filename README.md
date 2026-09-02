@@ -55,6 +55,11 @@ All configuration is via environment variables. Copy `.env.example` to `.env`.
 | `SYNC_KEYED_BRANCHES_ONLY` | no | `false` | only sync branches whose name contains an issue key (plus the default branch) |
 | `SYNC_DEFAULT_BRANCH_ONLY` | no | `false` | only sync the default branch |
 | `SYNC_CONCURRENCY` | no | `8` | parallel GHES requests per repo (`1` = serial) |
+| `SYNC_PUSH_CHUNK` | no | `400` | max commits per devinfo bulk POST; bigger commit sets split across sequential POSTs (`0` = never split). `400` is the Jira spec ceiling; values above it are clamped |
+| `SYNC_BACKFILL_FIRST_SIGHT` | no | `true` | send `operationType: BACKFILL` the first time a repo is synced (higher Jira rate-limit budget, correct semantics for indexing history) |
+| `JIRA_SEND_ISSUE_KEYS` | no | `true` | emit the `issueKeys` array on commit/branch/PR entities |
+| `JIRA_SEND_ASSOCIATIONS` | no | `true` | also emit `associations: [{issueIdOrKeys}]` (the forward-compatible linkage form) |
+| `JIRA_ISSUE_KEY_CAP` | no | `500` | per-entity cap on `issueKeys` + association values (Jira rejects above 500) |
 | `SYNC_LOG_ENTITIES` | no | `false` | log every commit/branch/PR sent to Jira (dry or wet), like `inspect --full` |
 | `GHES_USE_GRAPHQL` | no | `false` | scan branches via GraphQL (~3 calls/repo, active branches only, trunk-independent); needs GraphQL enabled |
 | `JIRA_OAUTH_CLIENT_ID` | unless `DRY_RUN` | — | |
@@ -95,7 +100,7 @@ last run.
 Pull the published multi-arch image (linux/amd64, linux/arm64):
 
 ```
-docker pull ghcr.io/tomaskovacik/ghes-jira-devinfo-bridge:0.0.1
+docker pull ghcr.io/tomaskovacik/ghes-jira-devinfo-bridge:0.1.0
 ```
 
 or build locally: `docker build -t ghes-jira-devinfo-bridge:local .`
@@ -155,6 +160,7 @@ Run subcommands by appending them to the image (entrypoint is `python -m bridge`
 docker run --rm --env-file .env IMAGE inspect --repo OWNER/NAME
 docker run --rm --env-file .env IMAGE inspect --all
 docker run --rm --env-file .env IMAGE delete-repo --repo OWNER/NAME --yes
+docker run --rm --env-file .env IMAGE reprocess --repo OWNER/NAME
 ```
 
 - **`inspect`** — what Jira has stored for a repo's development information:
@@ -163,6 +169,28 @@ docker run --rm --env-file .env IMAGE delete-repo --repo OWNER/NAME --yes
 - **`delete-repo`** — purge all devinfo for a repo in Jira. `--reset-state`
   also drops it from `state.json` so the next sync rebuilds it. Confirms unless
   `--yes`.
+- **`reprocess`** — delete every stored commit entity for a repo and re-push it
+  (chunked, rebuilt from what Jira already holds — no GHES, keeps commits whose
+  branch is gone). `--repo` / `--repo-id` / `--all`.
+
+For ad-hoc pokes at the devinfo API without rebuilding the image,
+[`scripts/devinfo-admin.sh`](scripts/devinfo-admin.sh) wraps the OAuth handshake
+and offers `inspect`, `commits`, `commit-seq`, `has <sha>`, `push-commit`,
+`repush-all`, and per-entity `delete-commit` / `delete-branch` / `delete-repo`.
+Point it at your env file: `ENV_FILE=/path/.env ./scripts/devinfo-admin.sh …`.
+
+**Commits stored but missing from issue panels.** `inspect` shows the commits,
+the push logged `202`, but the issues' Development panels show no commit (a
+branch-linked commit may still show). Jira's per-entity `updateSequenceId` rule
+is "replace only if strictly greater" — a re-push with an equal or lower id is
+silently dropped (not even reported in `failedDevinfoEntities`), and Jira does
+not rebuild a dropped association on a plain update. `reprocess --all` deletes
+and recreates each commit, which forces a fresh association. The rewrite that
+prevents recurrence: per-entity `updateSequenceId` (so a commit that is also a
+branch's `lastCommit` gets one shared id instead of two colliding copies), and
+`operationType: BACKFILL` on first sight. Older builds also chunked at 5, which
+made this worse by splitting one repo into several racing async submissions —
+`SYNC_PUSH_CHUNK` now defaults to `400`.
 
 **Wedged repo.** If a repo's Development panel is empty or stale even though the
 sync logs `202` and `inspect` shows commits (`branches: 0` is the tell), Jira's
@@ -184,6 +212,14 @@ uv run pytest
 ```
 
 Dependencies are pinned in `uv.lock`; run `uv lock` after changing `pyproject.toml`.
+
+## Reference docs
+
+[`docs/`](docs/) holds a captured copy of the Jira Development Information API
+spec, a survey of how the shipping first-party clients (`atlassian/github-for-jira`,
+`gitlab-org/gitlab`, the Jenkins plugin, the CircleCI orb) build their payloads,
+and the notes behind the bridge's `updateSequenceId` / `associations` /
+`operationType` / delete design. Start at [`docs/README.md`](docs/README.md).
 
 ## License
 

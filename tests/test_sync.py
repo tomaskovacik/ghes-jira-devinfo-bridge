@@ -124,27 +124,38 @@ class FakeJira:
         self.deleted: list[tuple[str, str]] = []
         self.closed = False
 
-    def push(self, payload: dict) -> DevinfoResult:
+    def push(self, payload: dict, *, chunk_size: int = 0) -> DevinfoResult:
         if self._push_error is not None:
             raise self._push_error
         self.pushed.append(payload)
         return self._result
 
-    def delete_branch(self, repo_id: str, branch_name: str) -> None:
-        self.deleted.append((repo_id, branch_name))
+    def delete_branch(self, repo_id: str, branch_id: str) -> None:
+        self.deleted.append((repo_id, branch_id))
 
     def close(self) -> None:
         self.closed = True
 
 
-def _fake_build(changes, *, prevent_transitions, update_sequence_id, pattern):
-    """Stand-in for the (not-yet-implemented) transform layer."""
+def _fake_build(
+    changes,
+    *,
+    prevent_transitions,
+    pattern,
+    operation_type="NORMAL",
+    properties=None,
+    send_issue_keys=True,
+    send_associations=True,
+    key_cap=500,
+):
+    """Stand-in for the transform layer (kept lightweight for sync tests)."""
     if changes.is_empty():
         return None
     return {
         "repositories": [{"id": changes.repo_id, "name": changes.full_name}],
         "preventTransitions": prevent_transitions,
-        "updateSequenceId": update_sequence_id,
+        "operationType": operation_type,
+        "properties": properties,
     }
 
 
@@ -190,6 +201,33 @@ def test_brand_new_repo_walks_default_and_compares_the_rest(cfg: Settings) -> No
     saved = _saved(cfg)
     assert saved["repos"]["octo/repo"]["branches"] == {"main": "sha1", "feature/x": "sha2"}
     assert saved["repos"]["octo/repo"]["last_success"].endswith("Z")
+    assert saved["repos"]["octo/repo"]["backfilled"] is True
+
+
+def test_first_sight_is_backfill_then_normal(cfg: Settings) -> None:
+    def _ghes() -> FakeGhes:
+        return FakeGhes(
+            repos=["octo/repo"],
+            metas={"octo/repo": _meta()},
+            branches={"octo/repo": [_branch("main", "sha1")]},
+            commits={("octo/repo", "main"): [_commit("c1")]},
+        )
+
+    state = State()
+    jira = FakeJira()
+    sync.run_once(cfg, ghes=_ghes(), jira=jira, state=state)
+    assert jira.pushed[0]["operationType"] == "BACKFILL"
+    assert jira.pushed[0]["properties"] == {"repositoryId": "1000"}
+
+    # head moves so the second pass actually pushes again
+    ghes2 = _ghes()
+    ghes2._branches["octo/repo"] = [_branch("main", "sha2")]
+    ghes2._compares[("octo/repo", "sha1", "sha2")] = CompareResult(
+        status=COMPARE_AHEAD, merge_base_sha="sha1", commits=[_commit("c2")]
+    )
+    jira2 = FakeJira()
+    sync.run_once(cfg, ghes=ghes2, jira=jira2, state=state)
+    assert jira2.pushed[0]["operationType"] == "NORMAL"
 
 
 def test_branch_exclude_globs_skip_branches(cfg: Settings) -> None:

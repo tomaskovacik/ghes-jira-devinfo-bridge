@@ -45,7 +45,7 @@ _REFS_QUERY = (
     "pageInfo{hasNextPage,endCursor},"
     "nodes{name,target{... on Commit{oid,committedDate,"
     "history(since:$since,first:100){pageInfo{hasNextPage},"
-    "nodes{oid,message,committedDate,url,author{name,email}}}}}}}}}"
+    "nodes{oid,message,committedDate,url,author{name,email},parents{totalCount}}}}}}}}}"
 )
 
 
@@ -161,6 +161,7 @@ class GhesClient:
         if file_count is None:
             files = node.get("files")
             file_count = len(files) if isinstance(files, list) else 0
+        parents = node.get("parents")
         return Commit(
             sha=node.get("sha", ""),
             message=commit.get("message", ""),
@@ -168,6 +169,7 @@ class GhesClient:
             authored_date=author.get("date", ""),
             url=node.get("html_url", ""),
             file_count=file_count,
+            is_merge=isinstance(parents, list) and len(parents) > 1,
         )
 
     @staticmethod
@@ -297,12 +299,14 @@ class GhesClient:
     @staticmethod
     def _gql_commit(node: dict) -> Commit:
         author = node.get("author") or {}
+        parents = (node.get("parents") or {}).get("totalCount") or 0
         return Commit(
             sha=node.get("oid", ""),
             message=node.get("message", ""),
             author=Author(author.get("name", ""), author.get("email", "")),
             authored_date=node.get("committedDate", ""),
             url=node.get("url", ""),
+            is_merge=parents > 1,
         )
 
     def active_branches(self, full_name: str, since_iso: str) -> BranchScan:
