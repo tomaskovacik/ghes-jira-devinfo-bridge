@@ -87,11 +87,11 @@ class Settings:
     push_chunk_size: int = 400
     # send operationType=BACKFILL the first time a repo is synced
     backfill_on_first_sight: bool = True
-    # Issue linkage form. Jira rejects issueKeys + associations on one entity
-    # ("mutually exclusive"). issueKeys (default) is what every shipping devinfo
-    # client sends; set send_issue_keys=False to use associations[issueIdOrKeys]
-    # instead. send_associations only takes effect when send_issue_keys is False.
-    send_issue_keys: bool = True
+    # Issue linkage form. The two are mutually exclusive on one entity (Jira
+    # 400s a payload carrying both). `issueKeys` is DEPRECATED in the Cloud API
+    # docs, so the default is `associations` (associationType issueIdOrKeys).
+    # Set send_issue_keys=True to fall back to the deprecated issueKeys array.
+    send_issue_keys: bool = False
     send_associations: bool = True
     issue_key_cap: int = 500  # per-entity cap on issueKeys / association values
     log_entities: bool = False
@@ -174,7 +174,7 @@ class Settings:
             concurrency=max(1, _int(env, "SYNC_CONCURRENCY", 8)),
             push_chunk_size=_chunk(env, "SYNC_PUSH_CHUNK", 400),
             backfill_on_first_sight=_bool(env, "SYNC_BACKFILL_FIRST_SIGHT", True),
-            send_issue_keys=_bool(env, "JIRA_SEND_ISSUE_KEYS", True),
+            send_issue_keys=_bool(env, "JIRA_SEND_ISSUE_KEYS", False),
             send_associations=_bool(env, "JIRA_SEND_ASSOCIATIONS", True),
             issue_key_cap=max(1, _int(env, "JIRA_ISSUE_KEY_CAP", 500)),
             log_entities=_bool(env, "SYNC_LOG_ENTITIES", False),

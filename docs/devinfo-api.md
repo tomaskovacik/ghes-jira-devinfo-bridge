@@ -261,8 +261,8 @@ DevInformationUpdate
 | `url` | string | ≤ 2000 | commit web URL |
 | `updateSequenceId` | integer (int64) | — | REQUIRED. See §5. |
 | `flags` | array<string> | enum: **`MERGE_COMMIT`** | optional. Only value currently defined. |
-| `issueKeys` | array<string> | each key ≤ 255; list capped at 500 (see §6) | Jira issue keys. Not `deprecated:true`; what every shipping devinfo client sends. **Mutually exclusive with `associations` — sending both 400s the request** (see §6). |
-| `associations` | array<Association> | total `values` ≤ 500 | Alternative to `issueKeys` (`associationType: "issueIdOrKeys"`); never send alongside `issueKeys`. See §6. |
+| `issueKeys` | array<string> | each key ≤ 255; list capped at 500 (see §6) | **DEPRECATED** in the rendered Cloud API docs — use `associations`. Still accepted and still what github-for-jira / gitlab ship. **Mutually exclusive with `associations` — sending both 400s the request** (see §6). |
+| `associations` | array<Association> | total `values` ≤ 500 | The non-deprecated linkage form (`associationType: "issueIdOrKeys"`); never send alongside `issueKeys`. See §6. |
 
 ### `Branch`
 
@@ -449,21 +449,20 @@ scheme derived from `int(time.time()*1000)` satisfies both.
   `issueKeys and associations are mutually exclusive. Either only specify
   issueKeys or pass issueKeys as an associationType.`
   (error key `devInformation.repository.commit.issueKeysOrAssociationsOrNone.invalid`).
-  Observed against the live API 2026-09-02. The rendered docs do **not** say
-  this — an earlier version of this file wrongly recommended sending both.
-- **`issueKeys: string[]`** — the original mechanism, still fully supported, not
-  `deprecated: true`. What **every** shipping devinfo client sends
-  (github-for-jira, gitlab); github-for-jira *disabled* commit `associations`
-  deliberately ("ARC-2803"). This is the safe default.
-- **`associations: [{associationType, values}]`** — the alternative. For issue
-  linkage use `associationType: "issueIdOrKeys"` (accepts keys *or* numeric ids)
-  or `"issueKeys"` (keys only). Atlassian docs steer new integrations here, and
-  the newer sibling APIs (deployments, security) use only this form — but for
-  devinfo, `issueKeys` is not going away.
+  Observed against the live API 2026-09-02. An earlier version of this file
+  wrongly recommended sending both.
+- **`issueKeys: string[]`** — **DEPRECATED** in the rendered Cloud API reference
+  (explicit badge on the `issueKeys` field of every devinfo entity). Still
+  accepted; github-for-jira and gitlab still send it, and github-for-jira
+  *disabled* commit `associations` deliberately once ("ARC-2803"). Available as
+  a fallback.
+- **`associations: [{associationType, values}]`** — the non-deprecated form. For
+  issue linkage use `associationType: "issueIdOrKeys"` (accepts keys *or*
+  numeric ids). The newer sibling APIs (deployments, security) use only this.
 - Cap: the value list (whichever form) must not exceed **500** per entity;
   github-for-jira truncates at `ISSUE_KEY_API_LIMIT = 500`.
-- Bridge: sends `issueKeys` by default; `JIRA_SEND_ISSUE_KEYS=false` switches to
-  `associations` (never both).
+- Bridge: sends `associations` by default; `JIRA_SEND_ISSUE_KEYS=true` uses the
+  deprecated `issueKeys` array instead (never both).
 
 ---
 

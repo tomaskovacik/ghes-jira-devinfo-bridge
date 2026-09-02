@@ -264,6 +264,15 @@ def _run_delete_repo(args: argparse.Namespace, settings: Settings) -> int:
     return 0
 
 
+def _one_linkage(entity: dict) -> dict:
+    """Jira 400s an entity carrying both issueKeys and associations. Stored
+    entities read back from Jira only carry issueKeys, but guard anyway: if both
+    are present, keep issueKeys and drop associations."""
+    if entity.get("issueKeys") and "associations" in entity:
+        return {k: v for k, v in entity.items() if k != "associations"}
+    return dict(entity)
+
+
 def _run_reprocess(args: argparse.Namespace, settings: Settings) -> int:
     ghes = GhesClient(settings)
     jira = JiraClient(settings)
@@ -301,7 +310,8 @@ def _run_reprocess(args: argparse.Namespace, settings: Settings) -> int:
                         "url": doc.get("url") or f"{settings.ghes_base_url}/{name}",
                         "updateSequenceId": base,
                         "commits": [
-                            {**c, "updateSequenceId": base + 1 + i} for i, c in enumerate(commits)
+                            {**_one_linkage(c), "updateSequenceId": base + 1 + i}
+                            for i, c in enumerate(commits)
                         ],
                     }
                 ],

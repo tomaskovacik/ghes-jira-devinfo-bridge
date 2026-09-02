@@ -57,8 +57,8 @@ All configuration is via environment variables. Copy `.env.example` to `.env`.
 | `SYNC_CONCURRENCY` | no | `8` | parallel GHES requests per repo (`1` = serial) |
 | `SYNC_PUSH_CHUNK` | no | `400` | max commits per devinfo bulk POST; bigger commit sets split across sequential POSTs (`0` = never split). `400` is the Jira spec ceiling; values above it are clamped |
 | `SYNC_BACKFILL_FIRST_SIGHT` | no | `true` | send `operationType: BACKFILL` the first time a repo is synced (higher Jira rate-limit budget, correct semantics for indexing history) |
-| `JIRA_SEND_ISSUE_KEYS` | no | `true` | link entities via the `issueKeys` array (what every devinfo client ships). Set `false` to link via `associations: [{issueIdOrKeys}]` instead — Jira rejects a payload carrying **both** on one entity |
-| `JIRA_SEND_ASSOCIATIONS` | no | `true` | use `associations` when `JIRA_SEND_ISSUE_KEYS=false`; ignored otherwise |
+| `JIRA_SEND_ISSUE_KEYS` | no | `false` | `false` links entities via `associations: [{issueIdOrKeys}]`; `true` uses the **deprecated** `issueKeys` array instead. Jira rejects a payload carrying **both** on one entity |
+| `JIRA_SEND_ASSOCIATIONS` | no | `true` | fall back to the deprecated `issueKeys` form when set `false` |
 | `JIRA_ISSUE_KEY_CAP` | no | `500` | per-entity cap on the key / association-value list (Jira rejects above 500) |
 | `SYNC_LOG_ENTITIES` | no | `false` | log every commit/branch/PR sent to Jira (dry or wet), like `inspect --full` |
 | `GHES_USE_GRAPHQL` | no | `false` | scan branches via GraphQL (~3 calls/repo, active branches only, trunk-independent); needs GraphQL enabled |

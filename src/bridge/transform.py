@@ -229,7 +229,7 @@ def build_devinfo_payload(
     operation_type: str = "NORMAL",
     properties: dict[str, str] | None = None,
     pattern: re.Pattern[str],
-    send_issue_keys: bool = True,
+    send_issue_keys: bool = False,
     send_associations: bool = True,
     key_cap: int = 500,
 ) -> dict | None:

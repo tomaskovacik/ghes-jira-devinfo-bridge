@@ -4,6 +4,16 @@ Goal: find the *consensus* behaviour of real, production Jira Development
 Information API writers, across GitHub, GitLab and Bitbucket/CI ecosystems, so the
 bridge rewrite copies proven choices instead of guessing.
 
+## Correction (2026-09-02)
+
+This survey concluded "send both `issueKeys` and `associations`". That is wrong:
+the rendered Cloud API reference badges `issueKeys` **DEPRECATED**, and the live
+API `400`s any entity carrying **both** forms
+(`issueKeysOrAssociationsOrNone.invalid`). The bridge now defaults to
+`associations` (`associationType: issueIdOrKeys`) and only sends `issueKeys` when
+`JIRA_SEND_ISSUE_KEYS=true`. Everything else below (chunk size 400, per-entity
+`updateSequenceId`, per-entity deletes) stands.
+
 ## Implementations examined
 
 | # | Project | Forge / role | Source pinned |
@@ -267,10 +277,11 @@ deployment-style entities → `associations`.**
 
 ### The two hard "safe defaults" for the rewrite
 
-1. **Keep `issueKeys`.** The premise that it is deprecated and must become
-   `associations` is not supported by any shipping client or by a `deprecated:true`
-   in the schema. Send `issueKeys` **and** `associations`(`issueIdOrKeys`) with the
-   same key set — a valid, forward-compatible payload.
+1. **Linkage: `associations`, not `issueKeys`.** Superseded — see the
+   `## Correction` note at the top of this file. The rendered Cloud API docs badge
+   `issueKeys` DEPRECATED, and the live API rejects sending both `issueKeys` and
+   `associations` on one entity. Default to `associations` (`issueIdOrKeys`);
+   keep `issueKeys` only as an opt-in fallback.
 2. **Per-entity monotonic `updateSequenceId`.** Only github-for-jira avoids the
    shared-SHA collision, and only by luck (wall clock). Do it deliberately:
    `base = int(time.time()*1000)`, then assign `base + i` to the i-th distinct
