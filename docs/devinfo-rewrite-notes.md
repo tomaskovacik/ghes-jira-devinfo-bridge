@@ -15,7 +15,7 @@ Cross-reference: `devinfo-api.md` (spec), `devinfo-reference-implementations.md`
 
 | finding | verdict after research | action |
 |---|---|---|
-| uses deprecated `issueKeys` (should be `associations`) | **Overstated.** `issueKeys` is not `deprecated:true` and every shipping client (github-for-jira, gitlab, CircleCI, Jenkins) still sends it. `associations`(`issueIdOrKeys`) is the *preferred* forward form. | Send **both** `issueKeys` and `associations` with the same key set. Config flag to drop `issueKeys` later. |
+| uses deprecated `issueKeys` (should be `associations`) | **Wrong.** `issueKeys` is not `deprecated:true`, every shipping client sends it, and the live API rejects a payload carrying **both** `issueKeys` and `associations` on one entity (`400`, "mutually exclusive"). | Send `issueKeys` (default); `JIRA_SEND_ISSUE_KEYS=false` switches to `associations` (`issueIdOrKeys`). Never both. |
 | one identical `updateSequenceId` for every entity; `commits[]` vs `branches[].lastCommit` collide | **Confirmed real.** Spec: replace only if incoming `> stored`, per entity id; equal is ignored. GitLab has the same bug; github-for-jira dodges it with per-entity `Date.now()`. | Per-entity monotonic `base + index`; dedupe shared SHA to one id → one USID. |
 | chunk size 5 (spec allows 400) | **Confirmed.** Both first-party clients use 400. | Default 400; keep chunking only as a safety valve. |
 | `delete_branch` uses `bulkByProperties` with no `properties` object | **Confirmed broken.** `bulkByProperties` matches *whole repositories* by their submission `properties`; it is not a per-branch delete. Consensus: per-entity `DELETE repository/{repoId}/branch/{branchId}`. | Rewrite to per-entity endpoint + `?_updateSequenceId`. |
@@ -440,11 +440,13 @@ present, keep.
 
 ## 7. Where spec and reference impls disagree (call-outs)
 
-1. **`issueKeys` vs `associations`.** Spec/docs steer toward `associations`; the
+1. **`issueKeys` vs `associations`.** Docs steer toward `associations` and the
    newer sibling APIs (deployments, security) dropped bare `issueKeys`. **But**
-   every devinfo client in the wild still sends `issueKeys`, and github-for-jira
-   *disabled* commit `associations` ("ARC-2803"). → Plan sends **both**, gated by
-   config, `issueKeys` on by default. Do not remove `issueKeys`.
+   every devinfo client in the wild sends `issueKeys`, github-for-jira *disabled*
+   commit `associations` ("ARC-2803"), and — confirmed against the live API
+   2026-09-02 — the two are **mutually exclusive on one entity** (`400`,
+   `issueKeysOrAssociationsOrNone.invalid`). → Send `issueKeys` by default;
+   `JIRA_SEND_ISSUE_KEYS=false` switches to `associations`. Never both.
 2. **`updateSequenceId` granularity.** github-for-jira = per-entity `Date.now()`;
    gitlab = one per submission (same bug as the bridge). Neither uses a
    deliberate `base+index`. → Plan picks `base+index` (stricter than both) as the

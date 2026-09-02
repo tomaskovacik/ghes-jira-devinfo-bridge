@@ -79,34 +79,40 @@ def test_merge_commit_gets_flag() -> None:
     assert payload["repositories"][0]["commits"][0]["flags"] == ["MERGE_COMMIT"]
 
 
-def test_associations_mirror_issue_keys_by_default() -> None:
+def test_linkage_defaults_to_issue_keys_only() -> None:
+    # Jira rejects issueKeys + associations on the same entity ("mutually
+    # exclusive"), and issueKeys is what every shipping client sends.
     payload = _build(_changes(commits=[_commit("abcdef1234", "ABC-1 x")]))
     commit = payload["repositories"][0]["commits"][0]
     assert commit["issueKeys"] == ["ABC-1"]
-    assert commit["associations"] == [{"associationType": "issueIdOrKeys", "values": ["ABC-1"]}]
+    assert "associations" not in commit
 
 
-def test_linkage_flags_can_drop_either_form() -> None:
+def test_linkage_switches_to_associations_never_both() -> None:
     c = _changes(commits=[_commit("abcdef1234", "ABC-1 x")])
+
     only_keys = _build(c, send_associations=False)["repositories"][0]["commits"][0]
-    assert "associations" not in only_keys and only_keys["issueKeys"] == ["ABC-1"]
+    assert only_keys["issueKeys"] == ["ABC-1"] and "associations" not in only_keys
 
     only_assoc = _build(c, send_issue_keys=False)["repositories"][0]["commits"][0]
     assert "issueKeys" not in only_assoc
-    assert only_assoc["associations"][0]["values"] == ["ABC-1"]
+    assert only_assoc["associations"] == [{"associationType": "issueIdOrKeys", "values": ["ABC-1"]}]
 
-    # both off -> fall back to issueKeys so the entity is never left unlinked
+    # both off -> issueKeys fallback, never nothing
     neither = _build(c, send_issue_keys=False, send_associations=False)
     entity = neither["repositories"][0]["commits"][0]
     assert entity["issueKeys"] == ["ABC-1"] and "associations" not in entity
 
 
-def test_issue_key_cap_truncates() -> None:
+def test_issue_key_cap_truncates_both_forms() -> None:
     msg = "start " + " ".join(f"ABC-{i}" for i in range(600))
-    payload = _build(_changes(commits=[_commit("abcdef1234", msg)]), key_cap=500)
-    commit = payload["repositories"][0]["commits"][0]
-    assert len(commit["issueKeys"]) == 500
-    assert len(commit["associations"][0]["values"]) == 500
+    changes = _changes(commits=[_commit("abcdef1234", msg)])
+    keys_commit = _build(changes, key_cap=500)["repositories"][0]["commits"][0]
+    assert len(keys_commit["issueKeys"]) == 500
+    assoc_commit = _build(changes, send_issue_keys=False, key_cap=500)["repositories"][0][
+        "commits"
+    ][0]
+    assert len(assoc_commit["associations"][0]["values"]) == 500
 
 
 def test_field_length_caps_applied() -> None:
@@ -218,7 +224,7 @@ def test_pull_request_with_key() -> None:
     pr = payload["repositories"][0]["pullRequests"][0]
     assert pr["id"] == "5"
     assert pr["issueKeys"] == ["ABC-2"]
-    assert pr["associations"][0]["values"] == ["ABC-2"]
+    assert "associations" not in pr
     assert pr["status"] == "OPEN"
     assert pr["sourceBranch"] == "feature/x"
     assert pr["destinationBranch"] == "main"
