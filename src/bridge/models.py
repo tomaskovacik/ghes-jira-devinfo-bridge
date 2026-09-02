@@ -34,6 +34,7 @@ class Commit:
     authored_date: str  # ISO 8601
     url: str  # web URL on the GHES instance
     file_count: int = 0
+    is_merge: bool = False  # >1 parent -> devinfo flags: ["MERGE_COMMIT"]
 
 
 @dataclass(frozen=True)

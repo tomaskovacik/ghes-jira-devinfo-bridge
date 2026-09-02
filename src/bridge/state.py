@@ -36,6 +36,7 @@ class RepoState:
     branches: dict[str, str] = field(default_factory=dict)  # branch name -> head sha
     pr_high_water: str = ""  # ISO 8601
     last_success: str = ""  # ISO 8601
+    backfilled: bool = False  # first-sight BACKFILL push has been sent
 
 
 @dataclass
@@ -75,6 +76,7 @@ class State:
                 branches=dict(raw.get("branches") or {}),
                 pr_high_water=str(raw.get("pr_high_water", "")),
                 last_success=str(raw.get("last_success", "")),
+                backfilled=bool(raw.get("backfilled", False)),
             )
         return cls(repos=repos)
 
@@ -91,6 +93,7 @@ class State:
                     "branches": dict(rs.branches),
                     "pr_high_water": rs.pr_high_water,
                     "last_success": rs.last_success,
+                    "backfilled": rs.backfilled,
                 }
                 for name, rs in self.repos.items()
             },

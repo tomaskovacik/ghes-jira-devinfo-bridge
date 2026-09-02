@@ -168,6 +168,63 @@ def test_delete_repository_issues_request_and_dry_run_no_ops() -> None:
     assert seen[0].url.path.endswith(f"/cloud/{CLOUD_ID}/repository/2484")
 
 
+def test_delete_commit_issues_request_and_dry_run_no_ops() -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/oauth/token":
+            return httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
+        seen.append(request)
+        return httpx.Response(202)
+
+    _client(handler, DRY_RUN="true").delete_commit("2491", "deadbeef")
+    assert seen == []
+
+    _client(handler).delete_commit("2491", "deadbeef")
+    assert len(seen) == 1
+    assert seen[0].method == "DELETE"
+    assert seen[0].url.path.endswith(f"/cloud/{CLOUD_ID}/repository/2491/commit/deadbeef")
+
+
+def test_push_chunks_large_commit_list() -> None:
+    bodies: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/oauth/token":
+            return httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
+        if request.url.path.endswith("/bulk"):
+            import json as _json
+
+            bodies.append(_json.loads(request.content))
+            return httpx.Response(202, json={"acceptedDevinfoEntities": {}})
+        raise AssertionError(f"unexpected {request.url}")
+
+    payload = {
+        "repositories": [
+            {
+                "id": "2491",
+                "name": "octo/repo",
+                "url": "https://ghe.example.com/octo/repo",
+                "commits": [{"id": f"c{i}"} for i in range(11)],
+                "branches": [{"id": "main"}],
+                "pullRequests": [{"id": "1"}],
+            }
+        ],
+        "preventTransitions": True,
+    }
+    _client(handler).push(payload, chunk_size=4)
+
+    assert [len(b["repositories"][0]["commits"]) for b in bodies] == [4, 4, 3]
+    # branches / PRs ride only the first chunk
+    assert "branches" in bodies[0]["repositories"][0]
+    assert "branches" not in bodies[1]["repositories"][0]
+    assert "pullRequests" not in bodies[2]["repositories"][0]
+    # a small list is still a single POST
+    bodies.clear()
+    _client(handler).push(payload, chunk_size=50)
+    assert len(bodies) == 1
+
+
 def test_delete_branch_no_ops_under_dry_run() -> None:
     calls: list[str] = []
 
@@ -180,7 +237,7 @@ def test_delete_branch_no_ops_under_dry_run() -> None:
     assert calls == []
 
 
-def test_delete_branch_issues_request() -> None:
+def test_delete_branch_issues_per_entity_request() -> None:
     seen: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -190,14 +247,32 @@ def test_delete_branch_issues_request() -> None:
         return httpx.Response(204)
 
     client = _client(handler)
-    client.delete_branch("42", "feature/ABC 1")
+    client.delete_branch("42", "feature~2fABC-1")  # already-escaped id from transform.branch_id
     assert len(seen) == 1
     req = seen[0]
     assert req.method == "DELETE"
-    assert req.url.path.endswith(f"/cloud/{CLOUD_ID}/bulkByProperties")
-    assert dict(req.url.params) == {"repositoryId": "42", "branchId": "feature/ABC 1"}
-    # the raw slash and space are percent/plus encoded in the query string
-    assert "branchId=feature%2FABC" in str(req.url)
+    assert req.url.path.endswith(f"/cloud/{CLOUD_ID}/repository/42/branch/feature~2fABC-1")
+    assert "bulkByProperties" not in str(req.url)
+    assert int(dict(req.url.params)["_updateSequenceId"]) > 0
+
+
+def test_deletes_carry_update_sequence_id() -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/oauth/token":
+            return httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
+        seen.append(request)
+        return httpx.Response(202)
+
+    client = _client(handler)
+    client.delete_commit("42", "deadbeef")
+    client.delete_repository("42")
+    assert len(seen) == 2
+    assert seen[0].url.path.endswith("/repository/42/commit/deadbeef")
+    assert seen[1].url.path.endswith("/repository/42")
+    for req in seen:
+        assert int(dict(req.url.params)["_updateSequenceId"]) > 0
 
 
 def test_retry_on_429_then_success(monkeypatch: pytest.MonkeyPatch) -> None:

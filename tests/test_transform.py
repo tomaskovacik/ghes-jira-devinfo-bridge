@@ -17,7 +17,7 @@ PATTERN = compile_pattern(None)
 AUTHOR = Author(name="Dev", email="dev@example.com")
 
 
-def _commit(sha: str, message: str) -> Commit:
+def _commit(sha: str, message: str, *, is_merge: bool = False) -> Commit:
     return Commit(
         sha=sha,
         message=message,
@@ -25,6 +25,7 @@ def _commit(sha: str, message: str) -> Commit:
         authored_date="2026-01-01T00:00:00Z",
         url=f"https://ghe.example.com/octo/repo/commit/{sha}",
         file_count=3,
+        is_merge=is_merge,
     )
 
 
@@ -38,12 +39,12 @@ def _changes(**kw) -> RepoChanges:
     return RepoChanges(**base)
 
 
-def _build(changes: RepoChanges, *, prevent_transitions: bool = True) -> dict | None:
+def _build(changes: RepoChanges, *, prevent_transitions: bool = True, **kw) -> dict | None:
     return build_devinfo_payload(
         changes,
         prevent_transitions=prevent_transitions,
-        update_sequence_id=1234,
         pattern=PATTERN,
+        **kw,
     )
 
 
@@ -62,13 +63,60 @@ def test_commit_with_key_included_displayid_and_fields() -> None:
     assert commit["author"] == {"name": "Dev", "email": "dev@example.com"}
     assert commit["authorTimestamp"] == "2026-01-01T00:00:00Z"
     assert commit["fileCount"] == 3
-    assert commit["updateSequenceId"] == 1234
+    # repo gets base+0, the one commit gets base+1
+    assert commit["updateSequenceId"] == repo["updateSequenceId"] + 1
+    assert "flags" not in commit
     assert "branches" not in repo
     assert "pullRequests" not in repo
 
 
 def test_commit_without_key_skipped_returns_none() -> None:
     assert _build(_changes(commits=[_commit("deadbeef00", "no key here")])) is None
+
+
+def test_merge_commit_gets_flag() -> None:
+    payload = _build(_changes(commits=[_commit("abc123", "ABC-1 merge", is_merge=True)]))
+    assert payload["repositories"][0]["commits"][0]["flags"] == ["MERGE_COMMIT"]
+
+
+def test_associations_mirror_issue_keys_by_default() -> None:
+    payload = _build(_changes(commits=[_commit("abcdef1234", "ABC-1 x")]))
+    commit = payload["repositories"][0]["commits"][0]
+    assert commit["issueKeys"] == ["ABC-1"]
+    assert commit["associations"] == [{"associationType": "issueIdOrKeys", "values": ["ABC-1"]}]
+
+
+def test_linkage_flags_can_drop_either_form() -> None:
+    c = _changes(commits=[_commit("abcdef1234", "ABC-1 x")])
+    only_keys = _build(c, send_associations=False)["repositories"][0]["commits"][0]
+    assert "associations" not in only_keys and only_keys["issueKeys"] == ["ABC-1"]
+
+    only_assoc = _build(c, send_issue_keys=False)["repositories"][0]["commits"][0]
+    assert "issueKeys" not in only_assoc
+    assert only_assoc["associations"][0]["values"] == ["ABC-1"]
+
+    # both off -> fall back to issueKeys so the entity is never left unlinked
+    neither = _build(c, send_issue_keys=False, send_associations=False)
+    entity = neither["repositories"][0]["commits"][0]
+    assert entity["issueKeys"] == ["ABC-1"] and "associations" not in entity
+
+
+def test_issue_key_cap_truncates() -> None:
+    msg = "start " + " ".join(f"ABC-{i}" for i in range(600))
+    payload = _build(_changes(commits=[_commit("abcdef1234", msg)]), key_cap=500)
+    commit = payload["repositories"][0]["commits"][0]
+    assert len(commit["issueKeys"]) == 500
+    assert len(commit["associations"][0]["values"]) == 500
+
+
+def test_field_length_caps_applied() -> None:
+    long_msg = "ABC-1 " + "x" * 5000
+    c = _commit("abcdef1234", long_msg)
+    c = Commit(**{**c.__dict__, "url": "https://ghe.example.com/" + "u" * 5000})
+    payload = _build(_changes(commits=[c]))
+    commit = payload["repositories"][0]["commits"][0]
+    assert len(commit["message"]) == 1024
+    assert len(commit["url"]) == 2000
 
 
 def test_branch_keys_from_name_and_last_commit() -> None:
@@ -87,6 +135,40 @@ def test_branch_keys_from_name_and_last_commit() -> None:
     assert set(b["issueKeys"]) == {"ABC-9", "PROJ-7"}
     assert b["lastCommit"]["issueKeys"] == ["PROJ-7"]
     assert b["lastCommit"]["displayId"] == "1111111"
+
+
+def test_shared_sha_gets_one_update_sequence_id() -> None:
+    """A commit that is both a standalone commits[] entry and a branch's
+    lastCommit must carry the SAME updateSequenceId in both places, or Jira's
+    'replace only if strictly greater' rule drops one copy."""
+    sha = "beefbeef0001"
+    last = _commit(sha, "ABC-9 head commit")
+    branch = Branch(
+        name="feature/ABC-9",
+        head_sha=sha,
+        url="https://ghe.example.com/octo/repo/tree/feature/ABC-9",
+        last_commit=last,
+    )
+    payload = _build(_changes(commits=[last], branches=[branch]))
+    repo = payload["repositories"][0]
+    standalone = repo["commits"][0]
+    nested = repo["branches"][0]["lastCommit"]
+    assert standalone["id"] == nested["id"] == sha
+    assert standalone["updateSequenceId"] == nested["updateSequenceId"]
+    # branch entity itself is a different id -> different usid
+    assert repo["branches"][0]["updateSequenceId"] != standalone["updateSequenceId"]
+
+
+def test_update_sequence_ids_are_distinct_and_monotonic() -> None:
+    payload = _build(
+        _changes(
+            commits=[_commit("aaa1", "ABC-1 a"), _commit("bbb2", "ABC-2 b")],
+        )
+    )
+    repo = payload["repositories"][0]
+    ids = [repo["updateSequenceId"], *(c["updateSequenceId"] for c in repo["commits"])]
+    assert ids == sorted(ids)
+    assert len(set(ids)) == len(ids)
 
 
 def test_branch_last_commit_empty_message_inherits_branch_keys() -> None:
@@ -136,6 +218,7 @@ def test_pull_request_with_key() -> None:
     pr = payload["repositories"][0]["pullRequests"][0]
     assert pr["id"] == "5"
     assert pr["issueKeys"] == ["ABC-2"]
+    assert pr["associations"][0]["values"] == ["ABC-2"]
     assert pr["status"] == "OPEN"
     assert pr["sourceBranch"] == "feature/x"
     assert pr["destinationBranch"] == "main"
@@ -159,15 +242,25 @@ def test_none_when_nothing_matches() -> None:
     assert _build(_changes()) is None
 
 
-def test_provider_metadata_and_prevent_transitions_passthrough() -> None:
+def test_envelope_fields() -> None:
     payload = _build(
         _changes(commits=[_commit("abcdef1234", "ABC-1 x")]),
         prevent_transitions=False,
+        operation_type="BACKFILL",
+        properties={"repositoryId": "42"},
     )
     assert payload["preventTransitions"] is False
+    assert payload["operationType"] == "BACKFILL"
+    assert payload["properties"] == {"repositoryId": "42"}
     assert payload["providerMetadata"] == {
         "product": f"ghes-jira-devinfo-bridge/{bridge.__version__}"
     }
+
+
+def test_operation_type_defaults_to_normal_and_properties_optional() -> None:
+    payload = _build(_changes(commits=[_commit("abcdef1234", "ABC-1 x")]))
+    assert payload["operationType"] == "NORMAL"
+    assert "properties" not in payload
 
 
 def test_deleted_branch_names_ignored_here() -> None:

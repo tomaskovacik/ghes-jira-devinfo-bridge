@@ -23,14 +23,16 @@ Per repo:
      last_success) and ``state.save(settings.state_path)``.
 
 ``lookback_iso`` = now - ``settings.lookback_days``, ISO 8601 UTC ``Z``.
-``update_sequence_id`` = ``int(time.time() * 1000)`` sampled once per repo push.
+``updateSequenceId`` is assigned per-entity by ``transform`` (``base + index`` from
+one ``int(time.time()*1000)`` sample), so a commit that is also a branch's
+``lastCommit`` gets one shared id. First sight of a repo is pushed as
+``operationType: BACKFILL``.
 """
 
 from __future__ import annotations
 
 import fnmatch
 import logging
-import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -247,11 +249,19 @@ def run_once(
                     name, rs.pr_high_water or lookback_iso
                 )
 
+            first_sight = not rs.branches and not rs.last_success and not rs.backfilled
+            operation_type = (
+                "BACKFILL" if (first_sight and settings.backfill_on_first_sight) else "NORMAL"
+            )
             payload = transform.build_devinfo_payload(
                 changes,
                 prevent_transitions=settings.prevent_transitions,
-                update_sequence_id=int(time.time() * 1000),
+                operation_type=operation_type,
+                properties={"repositoryId": str(meta.repo_id)},
                 pattern=pattern,
+                send_issue_keys=settings.send_issue_keys,
+                send_associations=settings.send_associations,
+                key_cap=settings.issue_key_cap,
             )
 
             if settings.log_entities and payload is not None:
@@ -259,12 +269,18 @@ def run_once(
                     logger.info(line)
 
             if payload is not None and not settings.dry_run:
-                result = jira.push(payload)
+                result = jira.push(payload, chunk_size=settings.push_chunk_size)
                 if result.unknown_issue_keys:
                     logger.warning(
                         "%s: Jira did not recognise issue keys %s",
                         name,
                         result.unknown_issue_keys,
+                    )
+                if result.unknown_associations:
+                    logger.warning(
+                        "%s: Jira could not associate devinfo entities %s",
+                        name,
+                        result.unknown_associations,
                     )
                 if result.failed_devinfo_keys:
                     logger.warning(
@@ -276,6 +292,7 @@ def run_once(
                 logger.info("%s: dry-run, not pushing payload: %s", name, payload)
 
             rs.repo_id = meta.repo_id
+            rs.backfilled = True  # first-sight BACKFILL (if any) has now been sent
             # Remember a branch head only once we have actually processed it, so a
             # branch that was inactive / out of scope stays "new" and gets a full
             # backfill when it later becomes relevant.

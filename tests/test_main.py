@@ -36,6 +36,7 @@ def _capture(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
     monkeypatch.setattr(m, "_run_sync", _mark("sync"))
     monkeypatch.setattr(m, "_run_inspect", _mark("inspect"))
     monkeypatch.setattr(m, "_run_delete_repo", _mark("delete"))
+    monkeypatch.setattr(m, "_run_reprocess", _mark("reprocess"))
     return called
 
 
@@ -60,6 +61,21 @@ def test_delete_repo_routing(monkeypatch: pytest.MonkeyPatch) -> None:
     assert m.main(["delete-repo", "--repo-id", "2484", "--yes"]) == 0
     assert called["cmd"] == "delete"
     assert called["args"].repo_id == "2484" and called["args"].yes is True
+
+
+def test_reprocess_routing(monkeypatch: pytest.MonkeyPatch) -> None:
+    called = _capture(monkeypatch)
+    assert m.main(["reprocess", "--all"]) == 0
+    assert called["cmd"] == "reprocess"
+    assert called["args"].all is True
+    called.clear()
+    assert m.main(["reprocess", "--repo", "octo/db"]) == 0
+    assert called["args"].repo == "octo/db"
+
+
+def test_reprocess_requires_a_target() -> None:
+    with pytest.raises(SystemExit):
+        m._parse_args(["reprocess"])
 
 
 def test_inspect_full_flag_parses(monkeypatch: pytest.MonkeyPatch) -> None:

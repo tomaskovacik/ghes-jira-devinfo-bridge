@@ -16,6 +16,12 @@ Subcommands (default is ``sync``):
       Purge all devinfo for a repo in Jira. Recovery for a repo whose async
       processing is wedged. --reset-state also drops it from state.json so the
       next sync rebuilds it.
+
+  python -m bridge reprocess (--repo OWNER/NAME | --repo-id ID | --all)
+      Delete every stored commit entity for a repo and re-push it (chunked,
+      rebuilt from what Jira already holds). Forces Jira to rebuild issue
+      associations that a large backfill left unbuilt; a plain re-push only
+      updates and does not.
 """
 
 from __future__ import annotations
@@ -28,6 +34,7 @@ import sys
 import time
 from pathlib import Path
 
+import bridge
 from bridge import report
 from bridge.config import ConfigError, Settings
 from bridge.ghes import GhesClient
@@ -114,6 +121,14 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     dele.add_argument(
         "--reset-state", action="store_true", help="also drop the repo(s) from state.json"
     )
+
+    repro = sub.add_parser(
+        "reprocess", help="delete + recreate stored commits so Jira rebuilds associations"
+    )
+    rgrp = repro.add_mutually_exclusive_group(required=True)
+    rgrp.add_argument("--repo", metavar="OWNER/NAME")
+    rgrp.add_argument("--repo-id", metavar="ID")
+    rgrp.add_argument("--all", action="store_true", help="every repo in state.json")
 
     return parser.parse_args(argv)
 
@@ -249,6 +264,65 @@ def _run_delete_repo(args: argparse.Namespace, settings: Settings) -> int:
     return 0
 
 
+def _run_reprocess(args: argparse.Namespace, settings: Settings) -> int:
+    ghes = GhesClient(settings)
+    jira = JiraClient(settings)
+    chunk = settings.push_chunk_size or 5
+    try:
+        targets = _resolve_targets(args, settings, ghes)
+        if not targets:
+            print("no repos to reprocess (state.json empty or has no repo ids)")
+            return 0
+        for name, repo_id in targets:
+            doc = jira.get_repository(repo_id)
+            commits = doc.get("commits") or []
+            if not commits:
+                print(f"{name} (id {repo_id}): no stored commits, skipping")
+                continue
+
+            for commit in commits:
+                commit_id = commit.get("id") or commit.get("hash")
+                if commit_id:
+                    jira.delete_commit(repo_id, commit_id)
+            if settings.dry_run:
+                print(f"{name} (id {repo_id}): dry-run, would recreate {len(commits)} commits")
+                continue
+            print(f"{name} (id {repo_id}): deleted {len(commits)} commits, waiting 10s")
+            time.sleep(10)
+
+            # distinct sha per commit -> one id per entity; base + index keeps them
+            # monotonic and strictly above anything previously stored.
+            base = int(time.time() * 1000)
+            payload = {
+                "repositories": [
+                    {
+                        "id": repo_id,
+                        "name": doc.get("name") or name,
+                        "url": doc.get("url") or f"{settings.ghes_base_url}/{name}",
+                        "updateSequenceId": base,
+                        "commits": [
+                            {**c, "updateSequenceId": base + 1 + i} for i, c in enumerate(commits)
+                        ],
+                    }
+                ],
+                "preventTransitions": settings.prevent_transitions,
+                "operationType": "BACKFILL",
+                "properties": {"repositoryId": str(repo_id)},
+                "providerMetadata": {"product": f"ghes-jira-devinfo-bridge/{bridge.__version__}"},
+            }
+            result = jira.push(payload, chunk_size=chunk)
+            print(
+                f"{name} (id {repo_id}): recreated {len(commits)} commits"
+                f" (unknown_keys={result.unknown_issue_keys}"
+                f" unknown_assoc={result.unknown_associations}"
+                f" failed={result.failed_devinfo_keys})"
+            )
+    finally:
+        ghes.close()
+        jira.close()
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     try:
@@ -264,6 +338,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_inspect(args, settings)
     if args.command == "delete-repo":
         return _run_delete_repo(args, settings)
+    if args.command == "reprocess":
+        return _run_reprocess(args, settings)
     return _run_sync(settings, logger)
 
 

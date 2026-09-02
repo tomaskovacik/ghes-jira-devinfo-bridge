@@ -47,6 +47,15 @@ def _list(env: Mapping[str, str], name: str) -> list[str]:
     return [item.strip() for item in env.get(name, "").split(",") if item.strip()]
 
 
+def _chunk(env: Mapping[str, str], name: str, default: int) -> int:
+    """Commits per devinfo bulk POST. 0 = never split; otherwise clamp to the
+    Jira spec ceiling of 400."""
+    value = _int(env, name, default)
+    if value <= 0:
+        return 0
+    return min(400, value)
+
+
 @dataclass(frozen=True)
 class Settings:
     ghes_base_url: str
@@ -74,6 +83,13 @@ class Settings:
     keyed_branches_only: bool = False
     default_branch_only: bool = False
     concurrency: int = 8
+    # commits per devinfo bulk POST; 0 = never split. Jira spec ceiling is 400.
+    push_chunk_size: int = 400
+    # send operationType=BACKFILL the first time a repo is synced
+    backfill_on_first_sight: bool = True
+    send_issue_keys: bool = True  # emit the issueKeys array on entities
+    send_associations: bool = True  # also emit associations[{issueIdOrKeys}]
+    issue_key_cap: int = 500  # per-entity cap on issueKeys + association values
     log_entities: bool = False
 
     state_path: str = "/data/state.json"
@@ -152,6 +168,11 @@ class Settings:
             keyed_branches_only=_bool(env, "SYNC_KEYED_BRANCHES_ONLY", False),
             default_branch_only=_bool(env, "SYNC_DEFAULT_BRANCH_ONLY", False),
             concurrency=max(1, _int(env, "SYNC_CONCURRENCY", 8)),
+            push_chunk_size=_chunk(env, "SYNC_PUSH_CHUNK", 400),
+            backfill_on_first_sight=_bool(env, "SYNC_BACKFILL_FIRST_SIGHT", True),
+            send_issue_keys=_bool(env, "JIRA_SEND_ISSUE_KEYS", True),
+            send_associations=_bool(env, "JIRA_SEND_ASSOCIATIONS", True),
+            issue_key_cap=max(1, _int(env, "JIRA_ISSUE_KEY_CAP", 500)),
             log_entities=_bool(env, "SYNC_LOG_ENTITIES", False),
             state_path=env.get("STATE_PATH", "") or "/data/state.json",
             dry_run=dry_run,
