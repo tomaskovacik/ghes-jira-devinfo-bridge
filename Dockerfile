@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM ghcr.io/astral-sh/uv:0.12.7 AS uv
+FROM ghcr.io/astral-sh/uv:0.12.10 AS uv
 
 FROM python:3.14-slim AS build
 COPY --from=uv /uv /bin/uv
