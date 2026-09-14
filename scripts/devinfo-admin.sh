@@ -176,8 +176,13 @@ commits)
 	echo "repo $full -> id $rid" >&2
 	curl -fsS -H "Authorization: Bearer $(get_token)" \
 		"$(devinfo_base)/repository/$rid" |
-		jq -r '.commits[]? |
-			"\(.id)  \(.authorTimestamp)  \(((.issueKeys // []) | join(",")) as $k | if $k == "" then "-" else $k end)  \(.message | split("\n")[0])"'
+		jq -r '
+			def linkedKeys: (.issueKeys // []) +
+				[(.associations // [])[]? |
+				 select(.associationType == "issueIdOrKeys" or .associationType == "issueKeys") |
+				 .values[]?] | unique;
+			.commits[]? |
+			"\(.id)  \(.authorTimestamp)  \((linkedKeys | join(",")) as $k | if $k == "" then "-" else $k end)  \(.message | split("\n")[0])"'
 	;;
 
 branches)
@@ -186,8 +191,13 @@ branches)
 	echo "repo $full -> id $rid" >&2
 	curl -fsS -H "Authorization: Bearer $(get_token)" \
 		"$(devinfo_base)/repository/$rid" |
-		jq -r '.branches[]? |
-			"\(.id // .name)  \(((.issueKeys // []) | join(",")) as $k | if $k == "" then "-" else $k end)  lastCommit=\(.lastCommit.id // "-")  seq=\(.updateSequenceId)"'
+		jq -r '
+			def linkedKeys: (.issueKeys // []) +
+				[(.associations // [])[]? |
+				 select(.associationType == "issueIdOrKeys" or .associationType == "issueKeys") |
+				 .values[]?] | unique;
+			.branches[]? |
+			"\(.id // .name)  \((linkedKeys | join(",")) as $k | if $k == "" then "-" else $k end)  lastCommit=\(.lastCommit.id // "-")  seq=\(.updateSequenceId)"'
 	;;
 
 commit-seq)
@@ -201,6 +211,10 @@ commit-seq)
 	curl -fsS -H "Authorization: Bearer $(get_token)" \
 		"$(devinfo_base)/repository/$rid" |
 		jq -r '
+			def linkedKeys: (.issueKeys // []) +
+				[(.associations // [])[]? |
+				 select(.associationType == "issueIdOrKeys" or .associationType == "issueKeys") |
+				 .values[]?] | unique;
 			([ .branches[]?.lastCommit.id ] | map(select(. != null))) as $heads
 			| (.commits // []) as $c
 			| "commits: \($c | length)",
@@ -212,7 +226,7 @@ commit-seq)
 			    | (.id) as $cid
 			    | "\(.updateSequenceId)  \(.authorTimestamp)  " +
 			      "\(if ($heads | index($cid)) != null then "HEAD" else "    " end)  " +
-			      "\((((.issueKeys // []) | join(",")) as $k | if $k == "" then "-" else $k end) + "                    " | .[:20])  " +
+			      "\((linkedKeys | join(",")) as $k | if $k == "" then "-" else $k end + "                    " | .[:20])  " +
 			      "\(.message | split("\n")[0][:50])"
 			  )
 		'
@@ -225,8 +239,14 @@ has)
 	echo "repo $full -> id $rid" >&2
 	curl -fsS -H "Authorization: Bearer $(get_token)" \
 		"$(devinfo_base)/repository/$rid" |
-		jq --arg s "$sha" '.commits[]? | select(.id == $s or .hash == $s) |
-			{id, issueKeys, updateSequenceId, message: (.message | split("\n")[0])}'
+		jq --arg s "$sha" '
+			def linkedKeys: (.issueKeys // []) +
+				[(.associations // [])[]? |
+				 select(.associationType == "issueIdOrKeys" or .associationType == "issueKeys") |
+				 .values[]?] | unique;
+			.commits[]? | select(.id == $s or .hash == $s) |
+			{id, issueKeys, associations, linkedKeys: linkedKeys, updateSequenceId,
+			 message: (.message | split("\n")[0])}'
 	;;
 
 delete-commit)
@@ -289,9 +309,15 @@ push-commit)
 		keys_csv="$(printf '%s\n' "$msg" | grep -oE '[A-Z][A-Z0-9]+-[0-9]+' | sort -u | paste -sd, -)"
 	fi
 	[ -n "$keys_csv" ] || { echo "no issue keys found; pass them as 3rd arg or KEYS=" >&2; exit 2; }
-	echo "issueKeys: $keys_csv" >&2
+	echo "keys: $keys_csv (linkage: ${LINK_FORM:-associations})" >&2
 
 	usid="$(( $(date +%s) * 1000 ))"
+
+	# LINK_FORM=issueKeys to test the deprecated form; default matches what the
+	# bridge itself sends (associations[{issueIdOrKeys}]). Jira 400s an entity
+	# carrying both, so exactly one.
+	linkage_json='{associations: [{associationType: "issueIdOrKeys", values: $keys}]}'
+	[ "${LINK_FORM:-}" = "issueKeys" ] && linkage_json='{issueKeys: $keys}'
 
 	payload="$(
 		printf '%s' "$cjson" | jq \
@@ -311,7 +337,7 @@ push-commit)
 						hash: $sha,
 						displayId: ($sha[0:7]),
 						message: .commit.message,
-						issueKeys: $keys,
+					} + ('"$linkage_json"') + {
 						author: { name: .commit.author.name, email: .commit.author.email },
 						authorTimestamp: .commit.author.date,
 						url: .html_url,
