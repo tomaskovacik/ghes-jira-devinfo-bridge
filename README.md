@@ -100,7 +100,7 @@ last run.
 Pull the published multi-arch image (linux/amd64, linux/arm64):
 
 ```
-docker pull ghcr.io/tomaskovacik/ghes-jira-devinfo-bridge:0.0.3
+docker pull ghcr.io/tomaskovacik/ghes-jira-devinfo-bridge:0.0.4
 ```
 
 or build locally: `docker build -t ghes-jira-devinfo-bridge:local .`
