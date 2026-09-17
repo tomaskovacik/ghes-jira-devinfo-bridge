@@ -236,18 +236,25 @@ def build_devinfo_payload(
     base = int(time.time() * 1000)
     usid = _Usid(base)
     repo_usid = usid.get("repository", str(changes.repo_id))  # base + 0
-    link_kw = {
-        "send_issue_keys": send_issue_keys,
-        "send_associations": send_associations,
-        "key_cap": key_cap,
-    }
+    # kwargs passed explicitly at each call site below, not via a shared dict:
+    # mypy can't narrow a dict[str, bool | int] unpacked with ** into functions
+    # whose parameters have distinct bool/int types.
 
     commits: list[dict] = []
     for commit in changes.commits:
         keys = extract(commit.message, pattern)
         if not keys:
             continue
-        commits.append(_commit_obj(commit, keys, usid, **link_kw))
+        commits.append(
+            _commit_obj(
+                commit,
+                keys,
+                usid,
+                send_issue_keys=send_issue_keys,
+                send_associations=send_associations,
+                key_cap=key_cap,
+            )
+        )
 
     branches: list[dict] = []
     for branch in changes.branches:
@@ -255,14 +262,33 @@ def build_devinfo_payload(
         keys = extract_many(pattern, branch.name, last_message)
         if not keys:
             continue
-        branches.append(_branch_obj(branch, keys, usid, pattern, **link_kw))
+        branches.append(
+            _branch_obj(
+                branch,
+                keys,
+                usid,
+                pattern,
+                send_issue_keys=send_issue_keys,
+                send_associations=send_associations,
+                key_cap=key_cap,
+            )
+        )
 
     pull_requests: list[dict] = []
     for pr in changes.pull_requests:
         keys = extract_many(pattern, pr.title, pr.body, pr.source_branch)
         if not keys:
             continue
-        pull_requests.append(_pull_request_obj(pr, keys, usid, **link_kw))
+        pull_requests.append(
+            _pull_request_obj(
+                pr,
+                keys,
+                usid,
+                send_issue_keys=send_issue_keys,
+                send_associations=send_associations,
+                key_cap=key_cap,
+            )
+        )
 
     if not commits and not branches and not pull_requests:
         return None

@@ -225,10 +225,10 @@ class GhesClient:
             for repo in self._paginate(path, {"type": "all", "per_page": 100}):
                 if repo.get("archived"):
                     continue
-                full = repo.get("full_name")
-                if full and full not in seen:
-                    seen.add(full)
-                    result.append(full)
+                repo_full = repo.get("full_name")
+                if repo_full and repo_full not in seen:
+                    seen.add(repo_full)
+                    result.append(repo_full)
         return result
 
     def get_repo(self, full_name: str) -> RepoMeta | None:
